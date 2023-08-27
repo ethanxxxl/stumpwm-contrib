@@ -1,9 +1,9 @@
 (in-package #:clim-mode-line)
 
 ;; Uncomment for debugging
-;; (declaim (optimize (speed 0)
-;;                    (safety 3)
-;;                    (debug 3)))
+(declaim (optimize (speed 0)
+                   (safety 3)
+                   (debug 3)))
 
 (defvar *align-x* :left)
 
@@ -111,7 +111,7 @@ formatted to the output stream in between each formatter when in text mode.")
          (frame (make-application-frame 'mode-line
                                         :left 0
                                         :top 0
-                                        :height 10
+                                        :height 30
                                         :width total-width
                                         :head-width total-width)))
     (setf *stumpwm-modeline-frame* frame)
@@ -142,7 +142,7 @@ formatted to the output stream in between each formatter when in text mode.")
          (let* ((sheet (frame-top-level-sheet frame))
                 (space (compose-space sheet))
                 (width (space-requirement-width space))
-                (height (space-requirement-height space)))
+                (height (space-requirement-min-height space)))
            (move-and-resize-sheet sheet 0 0 width height))
          (mapcar 'stumpwm::resize-mode-line
                  stumpwm::*mode-lines*)
