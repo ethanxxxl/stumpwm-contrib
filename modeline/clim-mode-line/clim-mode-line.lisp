@@ -76,7 +76,7 @@ formatted to the output stream in between each formatter when in text mode.")
   "this method sets the window type via clim-clx::adopt-frame as defined below."
   :dock)
 
-(defvar *mode-line-display-function* 'display-mode-line-as-table)
+(defvar *mode-line-display-function* 'display-mode-line-as-list)
 
 (defun display-mode-line (frame pane)
   (with-text-style (pane ;; (frame-text-style frame)
@@ -85,6 +85,23 @@ formatted to the output stream in between each formatter when in text mode.")
                     (make-text-style nil nil nil) ; use default text style
                     )
     (funcall *mode-line-display-function* frame pane)))
+
+;; TODO there needs to be a function which can replace the display function on
+;; in the modeline on the fly. When the display function is recompiled, a new
+;; function is created and the frame doesn't have a handle to it.
+(defun display-mode-line-as-list (frame pane)
+  "display function that treats`mode-line-formatters' as a list.
+The list is comprised of structures that define a method for the
+`format-item-display' generic. These methods will send to the standard output
+formatting-cells that contain the items that need to be displayed on the
+modeline."
+
+  ;; TODO quick and dirty test to get the display function working. replace with
+  ;; functional code.
+  (formatting-table (pane)
+    (formatting-row (pane)
+      (loop for x to 5 do
+        (formatting-cell (pane) (format t "hello: ~D" x))))))
 
 (defun display-mode-line-as-table (frame pane)
   (with-table (pane)
