@@ -86,9 +86,6 @@ formatted to the output stream in between each formatter when in text mode.")
                     )
     (funcall *mode-line-display-function* frame pane)))
 
-;; TODO there needs to be a function which can replace the display function on
-;; in the modeline on the fly. When the display function is recompiled, a new
-;; function is created and the frame doesn't have a handle to it.
 (defun display-mode-line-as-list (frame pane)
   "display function that treats`mode-line-formatters' as a list.
 The list is comprised of structures that define a method for the
@@ -96,12 +93,15 @@ The list is comprised of structures that define a method for the
 formatting-cells that contain the items that need to be displayed on the
 modeline."
 
-  ;; TODO quick and dirty test to get the display function working. replace with
-  ;; functional code.
   (formatting-table (pane)
     (formatting-row (pane)
-      (loop for x to 5 do
-        (formatting-cell (pane) (format t "hello: ~D" x))))))
+      (dolist (item (mode-line-format))
+        ;; fail safe. if format-item-display isn't implemented, don't call it.
+        (when (find-method #'format-item-display
+                           '()
+                           (list (type-of item) t t)
+                           nil)
+          (format-item-display item frame pane))))))
 
 (defun display-mode-line-as-table (frame pane)
   (with-table (pane)
@@ -138,16 +138,28 @@ modeline."
        (run-frame-top-level frame))
      :name "CLIM-MODE-LINE")))
 
-(defun debug-kill-restart ()
+(defun kill-rogue-threads ()
+  "sometimes restarting doesn't kill its thread, this makes sure it does."
+  (mapc #'sb-thread:terminate-thread
+        (remove-if-not
+         (lambda (thr)
+           (equal (slot-value thr 'sb-thread::%name) "CLIM-MODE-LINE"))
+         (sb-thread:list-all-threads))))
+
+
+(defun debug-kill-modeline ()
   (when *stumpwm-modeline-frame*
     (execute-frame-command *stumpwm-modeline-frame* '(com-quit)))
   (setf *stumpwm-modeline-frame* nil)
-  (stumpwm:run-commands "restart-soft"))
+  (setf stumpwm::*mode-lines* nil)
+  (kill-rogue-threads))
 
 (defun debug-kill-restart-hard ()
   (when *stumpwm-modeline-frame*
     (execute-frame-command *stumpwm-modeline-frame* '(com-quit)))
   (setf *stumpwm-modeline-frame* nil)
+  (setf stumpwm::*mode-lines* nil)
+  (kill-rogue-threads)
   (stumpwm:run-commands "restart-hard"))
 
 (defun redisp (frame)
@@ -159,7 +171,11 @@ modeline."
          (let* ((sheet (frame-top-level-sheet frame))
                 (space (compose-space sheet))
                 (width (space-requirement-width space))
-                (height (space-requirement-min-height space)))
+
+                ;; NOTE the height should be whatever the user wants.
+                ;; `space-requirement' seems to default to 100 no matter what
+                ;; the frame height is set to.
+                (height (slot-value frame 'clim-internals::geometry-height)))
            (move-and-resize-sheet sheet 0 0 width height))
          (mapcar 'stumpwm::resize-mode-line
                  stumpwm::*mode-lines*)
@@ -169,4 +185,7 @@ modeline."
                               group head))
                            (stumpwm::group-heads group)))
                  (stumpwm::screen-groups
-                  (stumpwm:current-screen))))))))
+                  (stumpwm:current-screen)))
+
+         ;; redisplay by sending it an update once finished.
+         (update-mode-line))))))

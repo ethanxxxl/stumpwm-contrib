@@ -12,5 +12,6 @@
                (:file "clim-mode-line")
                (:file "presentations")
                (:file "formatters")
+               (:file "list-formatters")
                (:file "gestures")
                (:file "commands-and-translators")))

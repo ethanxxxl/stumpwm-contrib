@@ -21,4 +21,15 @@
 (defstruct windows)
 (defmethod format-item-display ((item windows) frame pane)
   (dolist (win (stumpwm::group-windows (stumpwm::current-group)))
-    (with-cell (pane) (format nil "~S" (stumpwm::window-class win)))))
+    (formatting-cell (pane) (format t "~S" (stumpwm::window-class win)))))
+
+(defstruct test-item
+  (size))
+
+(defmethod format-item-display ((item test-item) frame pane)
+  (loop for x upto (test-item-size item) do
+    (formatting-cell (pane) (format t "[TEST ~D]" x))))
+
+(defun set-default-modeline ()
+  (set-mode-line-format (list (make-windows)
+                              (make-test-item :size 4))))
