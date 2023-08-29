@@ -93,7 +93,7 @@ The list is comprised of structures that define a method for the
 formatting-cells that contain the items that need to be displayed on the
 modeline."
 
-  (formatting-table (pane)
+  (formatting-table (pane :equalize-column-widths t)
     (formatting-row (pane)
       (dolist (item (mode-line-format))
         ;; fail safe. if format-item-display isn't implemented, don't call it.
@@ -133,10 +133,16 @@ modeline."
                                         :head-width total-width)))
     (setf *stumpwm-modeline-frame* frame)
     (stumpwm:add-hook stumpwm:*post-command-hook* 'update-mode-line-hanger)
-    (sb-thread:make-thread
-     (lambda () 
-       (run-frame-top-level frame))
-     :name "CLIM-MODE-LINE")))
+
+    ;; hold the modeline mutex while clim initializes
+    (sb-thread:with-mutex ((mode-line-mutex frame))
+      (sb-thread:make-thread
+       (lambda ()
+         (run-frame-top-level frame))
+       :name "CLIM-MODE-LINE")
+
+      ;; don't release the mutex until clim is done initializing
+      (loop until (frame-top-level-sheet frame)))))
 
 (defun kill-rogue-threads ()
   "sometimes restarting doesn't kill its thread, this makes sure it does."
@@ -144,7 +150,10 @@ modeline."
         (remove-if-not
          (lambda (thr)
            (equal (slot-value thr 'sb-thread::%name) "CLIM-MODE-LINE"))
-         (sb-thread:list-all-threads))))
+         (sb-thread:list-all-threads)))
+
+  (loop while (find "CLIM-MODE-LINE" (sb-thread:list-all-threads)
+                    :key (lambda (thread) (slot-value thread 'sb-thread::%name)))))
 
 
 (defun debug-kill-modeline ()
@@ -162,7 +171,7 @@ modeline."
   (kill-rogue-threads)
   (stumpwm:run-commands "restart-hard"))
 
-(defun redisp (frame)
+(defun redisp (&optional (frame *stumpwm-modeline-frame*))
   (sb-thread:with-mutex ((mode-line-mutex frame))
     (redisplay-frame-panes frame :force-p t)
     (stumpwm:call-in-main-thread
@@ -189,3 +198,13 @@ modeline."
 
          ;; redisplay by sending it an update once finished.
          (update-mode-line))))))
+
+;; BUG there seems to be either a race conditoin or some other odd behavior in
+;; (redisp). The function usually needs to be called twice, but can't be called
+;; "too quickly" after itself.
+(defun reset-modeline ()
+  "convenience function to delete the modeline and start it again."
+  (debug-kill-modeline)
+  (app-main)
+  (set-default-modeline)
+  (redisp))
