@@ -34,7 +34,7 @@
   (formatting-cell (pane :align-y :center)
     (local-time::format-timestring
      t (local-time:now)
-     :format '(:hour12 ":" :min " " :ampm " | " :day " " :short-month ", " :year))))
+     :format '((:hour 2) ":" (:min 2) " | " :day " " :short-month ", " :year))))
 
 (defstruct groups)
 
