@@ -19,15 +19,36 @@
 (defun cell-height (pane)
   (slot-value (pane-frame pane) 'clim-internals::geometry-height))
 
+(defmacro singleton-table ((stream &rest cell-args) &body body)
+  `(formatting-table (,stream)
+     (formatting-row (,stream)
+       (formatting-cell (,stream ,@cell-args)
+         ,@body))))
+
 ;; TODO implement this macro, so that formatting items can have a default and
 ;; configurable style.
-(defmacro with-default-style ((args 'cons) &rest body))
+(defmacro with-default-style ((pane &rest args &key (bg +grey+)) &body body)
+  `(let ((output-record
+           (with-output-to-output-record (,pane)
+             (surrounding-output-with-border (,pane)
+                 (formatting-cell (,pane :align-x :left :align-y :top
+                                         :min-height (cell-height ,pane))
+                   (singleton-table (,pane :align-y :center)
+                     ,@body)))))
+         (height (cell-height ,pane)))
+
+     ;; (stream-add-output-record ,pane output-record)
+     (formatting-cell (,pane :align-x :left :align-y :top
+                             :min-height height)
+
+       (draw-rectangle* ,pane 0 0
+                        (bounding-rectangle-width output-record) height :ink ,bg)
+       (singleton-table (,pane :align-y :center :min-height height)
+         ,@body))))
 
 (defstruct spacer
   (size 0))
 
-;; BUG time isn't correct.
-;; BUG single digit numbers don't have leading zeros.
 (ql:quickload "local-time")
 (defstruct date-time)
 (defmethod format-item-display ((item date-time) frame pane)
@@ -36,8 +57,7 @@
      t (local-time:now)
      :format '((:hour 2) ":" (:min 2) " | " :day " " :short-month ", " :year))))
 
-(defstruct groups)
-
+;; BUG Some windows don't show up until they become the active window.
 (defstruct windows)
 (defmethod format-item-display ((item windows) frame pane)
   (dolist (win (sort (stumpwm::group-windows (stumpwm::current-group))
@@ -47,9 +67,9 @@
     (formatting-cell (pane :align-x :center :align-y :top
                            :min-height (cell-height pane))
 
-      (let* ((name (format nil " ~D: ~A "
-                           (stumpwm::window-number win)
-                           (stumpwm::window-class win)))
+      (let* ((name (string-upcase (format nil " ~D: ~A "
+                                           (stumpwm::window-number win)
+                                           (stumpwm::window-class win))))
              (width (stream-string-width pane name))
              (height (cell-height pane)))
 
@@ -70,10 +90,11 @@
   (size))
 (defmethod format-item-display ((item test-item) frame pane)
   (loop for x upto (test-item-size item) do
-    (formatting-cell (pane :align-y :center)
+    (with-default-style (pane)
       (format t "[TEST ~D]" x))))
 
-;; TODO create formatter functions for these items
+;; TODO create for matter functions for these items
+(defstruct groups)
 (defstruct media)
 (defstruct wifi)
 (defstruct volume)
