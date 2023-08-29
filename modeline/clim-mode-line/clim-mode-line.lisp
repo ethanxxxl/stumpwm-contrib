@@ -139,7 +139,17 @@ modeline."
        :name "CLIM-MODE-LINE")
 
       ;; don't release the mutex until clim is done initializing
-      (loop until (frame-top-level-sheet frame)))))
+      (loop until (frame-top-level-sheet frame)))
+
+    ;; periodically updates the modeline to sure things like the time are
+    ;; updated.
+    (sb-thread:make-thread
+     (lambda ()
+       (loop
+         (sb-thread:with-mutex ((mode-line-mutex frame))
+           (update-mode-line))
+         (sleep 5)))
+     :name "CLIM-MODE-LINE")))          ; keep names the same for easy clean up.
 
 (defun kill-rogue-threads ()
   "sometimes restarting doesn't kill its thread, this makes sure it does."
