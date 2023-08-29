@@ -92,15 +92,12 @@ The list is comprised of structures that define a method for the
 `format-item-display' generic. These methods will send to the standard output
 formatting-cells that contain the items that need to be displayed on the
 modeline."
-
-  (formatting-table (pane :equalize-column-widths t)
+  (formatting-table (pane :x-spacing 0 :y-spacing 0)
     (formatting-row (pane)
       (dolist (item (mode-line-format))
         ;; fail safe. if format-item-display isn't implemented, don't call it.
-        (when (find-method #'format-item-display
-                           '()
-                           (list (type-of item) t t)
-                           nil)
+        (when (find-method #'format-item-display '()
+                           (list (type-of item) t t) nil)
           (format-item-display item frame pane))))))
 
 (defun display-mode-line-as-table (frame pane)
