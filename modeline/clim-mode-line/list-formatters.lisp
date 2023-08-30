@@ -102,9 +102,11 @@ yellow background colors."
                                     +cyan+)
                                    (t
                                     +gray80+)))
-          (format pane " ~D: ~A "
-                  (stumpwm::window-class win)
-                  (stumpwm::window-number win)))))))
+
+          (with-output-as-presentation (pane win 'stumpwm::window)
+            (format pane " ~D: ~A "
+                    (stumpwm::window-class win)
+                    (stumpwm::window-number win))))))))
 
 (defstruct test-item
   (size))
@@ -116,6 +118,17 @@ yellow background colors."
       (loop for x below (test-item-size item) do
         (with-default-style (pane)
           (format t " [TEST ~D] " x))))))
+
+;;;
+;;; CLIM Commands and Presentation Translators
+;;;
+(define-command (raise-window :command-table mode-line)
+    ((win))
+  (stumpwm::raise-window win))
+(define-presentation-to-command-translator
+    window-select (stumpwm::window raise-window mode-line)
+    '(win)
+  (list win))
 
 ;; TODO create for matter functions for these items
 (defstruct groups)
@@ -129,7 +142,5 @@ yellow background colors."
 (defun set-default-modeline ()
   "sets the default format of the modeline."
   (set-mode-line-format (list (make-windows)
-                              (make-spacer :size 1)
-                              (make-test-item :size 4)
                               (make-spacer :size 1)
                               (make-date-time))))
