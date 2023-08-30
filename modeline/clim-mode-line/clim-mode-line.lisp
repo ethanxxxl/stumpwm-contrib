@@ -89,16 +89,43 @@ formatted to the output stream in between each formatter when in text mode.")
 (defun display-mode-line-as-list (frame pane)
   "display function that treats`mode-line-formatters' as a list.
 The list is comprised of structures that define a method for the
-`format-item-display' generic. These methods will send to the standard output
-formatting-cells that contain the items that need to be displayed on the
-modeline."
-  (formatting-table (pane :x-spacing 0 :y-spacing 0)
-    (formatting-row (pane)
-      (dolist (item (mode-line-format))
-        ;; fail safe. if format-item-display isn't implemented, don't call it.
-        (when (find-method #'format-item-display '()
-                           (list (type-of item) t t) nil)
-          (format-item-display item frame pane))))))
+`format-item-display' generic. These methods contain draw instructions which are
+displayed on the modeline. Flex-box style spacing is also supported through
+spacer items.
+
+Spacers take up all available space. The width of an individual spacer is the
+ratio between the weight of that spacer and the total weight of all spacers."
+  (let ((space-used
+          (reduce #'+ (mode-line-format)
+                  :key (lambda (item)
+                         (if (find-method #'format-item-display '()
+                                          (list (type-of item) t t) nil)
+                             (rectangle-width
+                              (with-output-to-output-record (pane)
+                                (format-item-display item frame pane)))
+                             0))))
+        (spacers-weight
+          (reduce #'+ (remove-if-not (lambda (item) (typep item 'spacer))
+                                     (mode-line-format))
+                  :key #'spacer-size))
+        ;; FIXME multiple heads could cause problems
+        (head-width (stumpwm::head-width (stumpwm::current-head))))
+
+    (loop for item in (mode-line-format)
+          with start = 0 do
+            (cond ((typep item 'spacer)
+                   (incf start (* (- head-width space-used)
+                                  (/ (spacer-size item)
+                                     spacers-weight)))
+                   (incf start))        ; HACK for some reason this is off by
+                                        ; a single pixel.
+                  ((find-method #'format-item-display '()
+                                (list (type-of item) t t) nil)
+                   (let ((record (with-output-to-output-record (pane)
+                                   (format-item-display item frame pane))))
+                     (setf (output-record-position record) (values start 0))
+                     (stream-add-output-record pane record)
+                     (incf start (rectangle-width record))))))))
 
 (defun display-mode-line-as-table (frame pane)
   (with-table (pane)
@@ -125,7 +152,7 @@ modeline."
          (frame (make-application-frame 'mode-line
                                         :left 0
                                         :top 0
-                                        :height 30
+                                        :height 20
                                         :width total-width
                                         :head-width total-width)))
     (setf *stumpwm-modeline-frame* frame)

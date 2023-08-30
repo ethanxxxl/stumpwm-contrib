@@ -59,50 +59,63 @@ entire cell."
                                  :min-height (cell-height ,stream))
          ,@body))))
 
+;; TODO rename the size field on the spacer struct, it is poorly named.
 (defstruct spacer
   (size 0))
+(defmethod format-item-display ((item spacer) frame pane)
+  (formatting-cell (pane)
+    (draw-rectangle* pane 0 0 (spacer-size item) 0 :ink +transparent-ink+)))
 
 (ql:quickload "local-time")
+;; HACK added toplevel table as temporary workaround
 (defstruct date-time)
 (defmethod format-item-display ((item date-time) frame pane)
   "Displays the local time and date on the modeline."
-  (with-default-style (pane :bg +light-blue+)
-    (local-time::format-timestring
-     t (local-time:now) :format '(" " (:hour 2) ":" (:min 2) " ")))
-  (with-default-style (pane :bg +light-coral+)
-    (local-time::format-timestring
-     t (local-time:now)
-     :format '(" " :day " " :short-month ", " :year " "))))
+  (formatting-table (pane :x-spacing 0)
+    (formatting-row (pane)
+      (with-default-style (pane :bg +light-blue+)
+        (local-time::format-timestring
+         t (local-time:now) :format '(" " (:hour 2) ":" (:min 2) " ")))
+      (with-default-style (pane :bg +light-coral+)
+        (local-time::format-timestring
+         t (local-time:now)
+         :format '(" " :day " " :short-month ", " :year " "))))))
 
 ;; FIXME Some windows don't show up until they become the active window.
+;; HACK added toplevel table as temporary workaround
 (defstruct windows)
 (defmethod format-item-display ((item windows) frame pane)
   "displays all windows in the current group.
 
 the selected window has a cyan background color, while marked windows have
 yellow background colors."
-  (dolist (win (sort (stumpwm::group-windows (stumpwm::current-group))
-                     (lambda (&rest wins)
-                       (apply #'< (mapcar #'stumpwm::window-number wins)))))
+  (formatting-table (pane :x-spacing 0)
+    (formatting-row (pane)
+      (dolist (win (sort (stumpwm::group-windows (stumpwm::current-group))
+                         (lambda (&rest wins)
+                           (apply #'< (mapcar #'stumpwm::window-number wins)))))
 
-    (with-default-style (pane :bg
-                         (cond ((stumpwm::window-marked win)
-                                +yellow+)
-                               ((eq (stumpwm::current-window) win)
-                                +cyan+)
-                               (t
-                                +gray80+)))
-      (format pane " ~D: ~A "
-              (stumpwm::window-class win)
-              (stumpwm::window-number win)))))
+        (with-default-style (pane :bg
+                             (cond ((stumpwm::window-marked win)
+                                    +yellow+)
+                                   ((eq (stumpwm::current-window) win)
+                                    +cyan+)
+                                   (t
+                                    +gray80+)))
+          (format pane " ~D: ~A "
+                  (stumpwm::window-class win)
+                  (stumpwm::window-number win)))))))
 
 (defstruct test-item
   (size))
+;; HACK added toplevel table as temporary workaround
 (defmethod format-item-display ((item test-item) frame pane)
   "dummy items to take up space in the modeline"
-  (loop for x below (test-item-size item) do
-    (with-default-style (pane)
-      (format t " [TEST ~D] " x))))
+  (formatting-table (pane :x-spacing 0)
+    (formatting-row (pane)
+      (loop for x below (test-item-size item) do
+        (with-default-style (pane)
+          (format t " [TEST ~D] " x))))))
 
 ;; TODO create for matter functions for these items
 (defstruct groups)
@@ -111,9 +124,12 @@ yellow background colors."
 (defstruct volume)
 (defstruct bluetooth)
 (defstruct battery)
+(defstruct weather)
 
 (defun set-default-modeline ()
   "sets the default format of the modeline."
   (set-mode-line-format (list (make-windows)
+                              (make-spacer :size 1)
                               (make-test-item :size 4)
+                              (make-spacer :size 1)
                               (make-date-time))))
