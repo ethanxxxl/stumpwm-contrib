@@ -1,105 +1,49 @@
-;; this addition to clim-mode-line adds a format parameter to the mode-line
-;; structure. This will allow for multiple mode lines (on different screens) to
-;; display different information.
-;;
-;; the format-list parameter is a list of format items. These items will be
-;; placed on the mode line from left to right. every format item must implement
-;; format-item-display.
-;;
-;; format-item-display is responsible for generating a CLIM table cell(s) which
-;; will display any information and handle all interaction.
-
-;; TODO during next refactor, create a more consistent naming convention for the
-;; formatting items.
+;;; List formatting is a display function for the CLIM modeline. This display
+;;; function loops through a regular list and puts the formatting items it sees
+;;; on the modeline (there is special processing done to allow for spacers,
+;;; right, and center alignment). This list formatter list is tracked by the
+;;; formatters slot in the application frame.
+;;;
+;;; Functions and macros are defined that provide both a consistent style and
+;;; convenient process for adding functionality to the modeline. Existing
+;;; formatting items can be configured to suit your preferences; if no
+;;; formatting item exists for your use case, adding a new one is
+;;; straghtforward, only requiring 2-3 steps.
+;;;
+;;; 1. (define-formatting-item (name slots) body)
+;;;
+;;;    this macro defines a new formatting item. Internally, a structure is
+;;;    defined, along with its constructure, make-/name/. Any data necessary for
+;;;    configuring the item or for tracking state may be defined as zero or more
+;;;    slot forms succeeding the name.
+;;;
+;;;    The body is the function which is called every time the modeline is
+;;;    updated. (with-default-style) is another useful macro that can be used to
+;;;    set the background color and interactivity of the output text/graphics.
+;;;
+;;; 2. (define-modeline-command ((name from-type) obj body))
+;;;
+;;;    This step is only necessary if the item needs to be interactive. It
+;;;    defines a CLIM command and presentation translator. In the display
+;;;    funciton (defined above), an object can be associated with the output
+;;;    text, graphic, etc. via either the with-default-style or
+;;;    with-output-as-presentation macros (former is more abstracted and domain
+;;;    specific). If a modeline-command is defined with the above macro, then
+;;;    body will be executed whenever a presentation with the same time as obj
+;;;    is clicked on.
+;;;
+;;; 3. Update the formatters list
+;;;
+;;;    If any changes are made to the order of format items, the change needs to
+;;;    be reflected in the formatters slot in the application frame. An example
+;;;    of this is shown in the set-default-modeline function at the bottom of
+;;;    this file. also note, that the redisp function may need to be called
+;;;    after making a change.
 
 (in-package :clim-mode-line)
 
-(defgeneric format-item-display (item frame pane))
-
-(defun cell-height (pane)
-  "returns the height of the application frame, ie the height of the modeline."
-  (slot-value (pane-frame pane) 'clim-internals::geometry-height))
-
-(defmacro formatting-table-row ((stream &rest table-args) &body body)
-  "executes body in the context of a table with a single row."
-  `(formatting-table (,stream ,@table-args)
-     (formatting-row (,stream)
-       ,@body)))
-
-(defmacro singleton-table ((stream &rest cell-args) &body body)
-  "creates a table composed of a single cell.
-This macro can be used to set the alignment of content within another
-containter. `cell-args' are passed directly to the formatting-cell."
-  `(formatting-table-row (,stream)
-     (formatting-cell (,stream ,@cell-args)
-       ,@body)))
-
-(defmacro with-background ((&optional (stream t) &key (bg +gray+)) &body body)
-  "Draws a rectangle with color `bg' behind `body'.
-`body' is drawn on top of a colored rectangle to apply a background color to it.
-The rectangle will be no larger than the bounding-rectangle of `body'. The
-background and `body' are written to the stream specified by `stream'"
-  `(let* ((output-record (with-output-to-output-record (,stream)
-                           ,@body))
-          (min-point (rectangle-min-point output-record))
-          (max-point (rectangle-max-point output-record)))
-
-     (draw-rectangle ,stream min-point max-point :ink ,bg)
-     (stream-add-output-record ,stream output-record)))
-
-;; TODO add more styling options to this macro to make element shapes more
-;; visually interesting.
-(defmacro with-default-style ((stream &key (bg +grey+) obj)
-                              &body body)
-  "`body' is formatted and drawn to `stream'.
-Every element of the modeline is stored in a cell in a table. This macro creates
-a cell which is placed in that table. `body' is centered vertically and
-horizontally in the cell. A background color specified by `bg' is applied to the
-entire cell."
-  `(formatting-cell (,stream :align-x :left :align-y :top)
-     (with-background (,stream :bg ,bg)
-       ;; NOTE rectangle is a workaround due to a bug with :min-height in mcclim
-       (draw-rectangle* ,stream 0 0 0 (cell-height ,stream)
-                        :ink +transparent-ink+)
-       (singleton-table (,stream :align-x :center :align-y :center
-                                 :min-height (cell-height ,stream))
-         (if ,obj
-             (with-output-as-presentation (,stream ,obj (type-of ,obj))
-               ,@body)
-             ,@body)))))
-
-;; FIXME if for some reason the modeline isn't initialized when this macro is
-;; called, then it will not be able to find the command table "mode-line"
-(defmacro define-modeline-command ((name from-type) obj &body body)
-  "defines a CLIM command command that will be used on the modeline.
-this command will take a single argument, `obj'. Commands defined with this
-macro will accible through output formatted through `with-default-style' that
-have the same associated object type.
-
-This macro defines a CLIM command and presentation-to-command translator. The
-command performs an arbitrary operation on or based on the object. The
-translator allows presentations of the specified data-type to be clicked on, and
-their associated commands run."
-  `(progn
-     (define-command (,name :command-table mode-line) ((,obj))
-       ,@body)
-     (define-presentation-to-command-translator
-         ,(intern (format nil "~A-TRANSLATOR" name))
-         (,from-type ,name mode-line) (,obj)
-       (list ,obj))))
-
 (define-modeline-command (window-picker stumpwm::window) win
   (stumpwm:raise-window win))
-
-(defmacro define-formatting-item ((name &rest slots) &body body)
-  "declares a formatting item and all of includes `frame' and `pane' bindings
-to the display pane in the application frame."
-  `(progn
-     (defstruct ,name ,@slots)
-     (defmethod format-item-display ((item ,name) frame pane)
-       (formatting-table (pane)
-         (formatting-row (pane)
-           ,@body)))))
 
 ;; spacer dummy item, no
 (define-formatting-item (spacer-item (weight)))

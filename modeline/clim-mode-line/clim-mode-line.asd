@@ -13,5 +13,6 @@
                (:file "presentations")
                (:file "formatters")
                (:file "list-formatters")
+               (:file "list-formatters-macros")
                (:file "gestures")
                (:file "commands-and-translators")))
