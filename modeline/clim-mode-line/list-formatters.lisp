@@ -20,14 +20,19 @@
   "returns the height of the application frame, ie the height of the modeline."
   (slot-value (pane-frame pane) 'clim-internals::geometry-height))
 
+(defmacro formatting-table-row ((stream &rest table-args) &body body)
+  "executes body in the context of a table with a single row."
+  `(formatting-table (,stream ,@table-args)
+     (formatting-row (,stream)
+       ,@body)))
+
 (defmacro singleton-table ((stream &rest cell-args) &body body)
   "creates a table composed of a single cell.
 This macro can be used to set the alignment of content within another
 containter. `cell-args' are passed directly to the formatting-cell."
-  `(formatting-table (,stream)
-     (formatting-row (,stream)
-       (formatting-cell (,stream ,@cell-args)
-         ,@body))))
+  `(formatting-table-row (,stream)
+     (formatting-cell (,stream ,@cell-args)
+       ,@body)))
 
 (defmacro with-background ((&optional (stream t) &key (bg +gray+)) &body body)
   "Draws a rectangle with color `bg' behind `body'.
@@ -44,7 +49,8 @@ background and `body' are written to the stream specified by `stream'"
 
 ;; TODO add more styling options to this macro to make element shapes more
 ;; visually interesting.
-(defmacro with-default-style ((stream &key (bg +grey+)) &body body)
+(defmacro with-default-style ((stream &key (bg +grey+) obj)
+                              &body body)
   "`body' is formatted and drawn to `stream'.
 Every element of the modeline is stored in a cell in a table. This macro creates
 a cell which is placed in that table. `body' is centered vertically and
@@ -57,6 +63,58 @@ entire cell."
                         :ink +transparent-ink+)
        (singleton-table (,stream :align-x :center :align-y :center
                                  :min-height (cell-height ,stream))
+         (if ,obj
+             (with-output-as-presentation (,stream ,obj (type-of ,obj))
+               ,@body)
+             ,@body)))))
+
+;; FIXME if for some reason the modeline isn't initialized when this macro is
+;; called, then it will not be able to find the command table "mode-line"
+(defmacro define-modeline-command ((name from-type) obj &body body)
+  "defines a CLIM command command that will be used on the modeline.
+this command will take a single argument, `obj'. Commands defined with this
+macro will accible through output formatted through `with-default-style' that
+have the same associated object type.
+
+This macro defines a CLIM command and presentation-to-command translator. The
+command performs an arbitrary operation on or based on the object. The
+translator allows presentations of the specified data-type to be clicked on, and
+their associated commands run."
+  `(progn
+     (define-command (,name :command-table mode-line) ((,obj))
+       ,@body)
+     (define-presentation-to-command-translator
+         ,(intern (format nil "~A-TRANSLATOR" name))
+         (,from-type ,name mode-line) (,obj)
+       (list ,obj))))
+
+(define-modeline-command (window-picker stumpwm::window) win
+  (stumpwm:raise-window win))
+
+(defmacro make-formatting-item ((name &rest slots) &body body)
+  "declares a formatting item and all of its functionality.
+A formatting item must have the following components:
+- name
+- display function
+
+A formatting item may execute clim commands with various gestures.
+these commands must be defined in this macro as well.
+
+presentation translators are defined to map the text of the formatting-item to
+the clim commands defined in this macro
+
+there may be zero or more commands per format item.
+commands may be applied to either the entire format-item, or portions of it. (ie
+window text, and an x button).
+
+because there is no 'easy' way to define multiple commands and define where they
+will be used, it would likely be best to simply include this functionality in
+the with-default-formatting macro.
+"
+  `(defstruct ,name ,@slots)
+  `(defmethod format-item-display ((item ,name) frame pane)
+     (formatting-table (pane)
+       (formatting-row (pane)
          ,@body))))
 
 ;; TODO rename the size field on the spacer struct, it is poorly named.
@@ -89,26 +147,37 @@ entire cell."
 
 the selected window has a cyan background color, while marked windows have
 yellow background colors."
-  (formatting-table (pane :x-spacing 0)
-    (formatting-row (pane)
-      (dolist (win (sort (stumpwm::group-windows (stumpwm::current-group))
-                         (lambda (&rest wins)
-                           (apply #'< (mapcar #'stumpwm::window-number wins)))))
+  (formatting-table-row (pane :x-spacing 0)
+    (loop for win in (stumpwm::sort-windows (stumpwm::current-group))
+          for x from 0 do
+            (let* ((base-color (mapcar #'/ '(204 195 175) '(255 255 255)))
+                   (num-windows (length (stumpwm::group-windows
+                                         (stumpwm::current-group))))
+                   (opacity (+ 1.0 (* 0.2 (/ x num-windows))))
+                   (shaded-color (apply #'make-rgb-color
+                                        (mapcar #'* base-color
+                                                (list opacity
+                                                      opacity
+                                                      opacity))))
 
-        (with-default-style (pane :bg
-                             (cond ((stumpwm::window-marked win)
-                                    +yellow+)
-                                   ((eq (stumpwm::current-window) win)
-                                    +cyan+)
-                                   (t
-                                    +gray80+)))
+                   ;; determine whether window is selected or or marked
+                   (background-color (cond ((stumpwm::window-marked win)
+                                            +yellow+)
+                                           ((eq (stumpwm::current-window) win)
+                                            +cyan+)
+                                           (t
+                                            shaded-color))))
 
-          (with-output-as-presentation (pane win 'stumpwm::window)
-            (format pane " ~D: ~A "
-                    (stumpwm::window-class win)
-                    (stumpwm::window-number win))))))))
+              ;; print window name and number, associate the window object with
+              ;; the text
+              (with-default-style (pane :bg background-color :obj win)
+                (format pane " ~D: ~A "
+                        (stumpwm::window-class win)
+                        (stumpwm::window-number win)))))))
 
 (defstruct test-item
+                     (base-color (mapcar #'/ '(204 195 175) '(255 255 255)))
+                     (base-color (mapcar #'/ '(204 195 175) '(255 255 255)))
   (size))
 ;; HACK added toplevel table as temporary workaround
 (defmethod format-item-display ((item test-item) frame pane)
@@ -122,13 +191,13 @@ yellow background colors."
 ;;;
 ;;; CLIM Commands and Presentation Translators
 ;;;
-(define-command (raise-window :command-table mode-line)
-    ((win))
-  (stumpwm::raise-window win))
-(define-presentation-to-command-translator
-    window-select (stumpwm::window raise-window mode-line)
-    '(win)
-  (list win))
+;; (define-command (raise-window :command-table mode-line)
+;;     ((win))
+;;   (stumpwm::raise-window win))
+;; (define-presentation-to-command-translator
+;;     window-select (stumpwm::window raise-window mode-line)
+;;     '(win)
+;;   (list win))
 
 ;; TODO create for matter functions for these items
 (defstruct groups)
@@ -142,5 +211,7 @@ yellow background colors."
 (defun set-default-modeline ()
   "sets the default format of the modeline."
   (set-mode-line-format (list (make-windows)
+                              (make-spacer :size 1)
+                              (make-test-item :size 4)
                               (make-spacer :size 1)
                               (make-date-time))))
