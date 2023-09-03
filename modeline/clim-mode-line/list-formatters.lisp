@@ -91,43 +91,21 @@ their associated commands run."
 (define-modeline-command (window-picker stumpwm::window) win
   (stumpwm:raise-window win))
 
-(defmacro make-formatting-item ((name &rest slots) &body body)
-  "declares a formatting item and all of its functionality.
-A formatting item must have the following components:
-- name
-- display function
+(defmacro define-formatting-item ((name &rest slots) &body body)
+  "declares a formatting item and all of includes `frame' and `pane' bindings
+to the display pane in the application frame."
+  `(progn
+     (defstruct ,name ,@slots)
+     (defmethod format-item-display ((item ,name) frame pane)
+       (formatting-table (pane)
+         (formatting-row (pane)
+           ,@body)))))
 
-A formatting item may execute clim commands with various gestures.
-these commands must be defined in this macro as well.
-
-presentation translators are defined to map the text of the formatting-item to
-the clim commands defined in this macro
-
-there may be zero or more commands per format item.
-commands may be applied to either the entire format-item, or portions of it. (ie
-window text, and an x button).
-
-because there is no 'easy' way to define multiple commands and define where they
-will be used, it would likely be best to simply include this functionality in
-the with-default-formatting macro.
-"
-  `(defstruct ,name ,@slots)
-  `(defmethod format-item-display ((item ,name) frame pane)
-     (formatting-table (pane)
-       (formatting-row (pane)
-         ,@body))))
-
-;; TODO rename the size field on the spacer struct, it is poorly named.
-(defstruct spacer
-  (size 0))
-(defmethod format-item-display ((item spacer) frame pane)
-  (formatting-cell (pane)
-    (draw-rectangle* pane 0 0 (spacer-size item) 0 :ink +transparent-ink+)))
+;; spacer dummy item, no
+(define-formatting-item (spacer-item (weight)))
 
 (ql:quickload "local-time")
-;; HACK added toplevel table as temporary workaround
-(defstruct date-time)
-(defmethod format-item-display ((item date-time) frame pane)
+(define-formatting-item (date-time-item)
   "Displays the local time and date on the modeline."
   (formatting-table (pane :x-spacing 0)
     (formatting-row (pane)
@@ -140,20 +118,20 @@ the with-default-formatting macro.
          :format '(" " :day " " :short-month ", " :year " "))))))
 
 ;; FIXME Some windows don't show up until they become the active window.
-;; HACK added toplevel table as temporary workaround
-(defstruct windows)
-(defmethod format-item-display ((item windows) frame pane)
+(define-formatting-item (windows-item)
   "displays all windows in the current group.
 
 the selected window has a cyan background color, while marked windows have
 yellow background colors."
   (formatting-table-row (pane :x-spacing 0)
     (loop for win in (stumpwm::sort-windows (stumpwm::current-group))
-          for x from 0 do
-            (let* ((base-color (mapcar #'/ '(204 195 175) '(255 255 255)))
+          for x from 1 do
+            (let* ((base-color (mapcar #'/ '(183 237 130) '(255 255 255)))
                    (num-windows (length (stumpwm::group-windows
                                          (stumpwm::current-group))))
-                   (opacity (+ 1.0 (* 0.2 (/ x num-windows))))
+                   (color-sweep 0.15)
+                   (opacity (+ (- 1.0 color-sweep)
+                               (* color-sweep (/ x num-windows))))
                    (shaded-color (apply #'make-rgb-color
                                         (mapcar #'* base-color
                                                 (list opacity
@@ -175,29 +153,13 @@ yellow background colors."
                         (stumpwm::window-class win)
                         (stumpwm::window-number win)))))))
 
-(defstruct test-item
-                     (base-color (mapcar #'/ '(204 195 175) '(255 255 255)))
-                     (base-color (mapcar #'/ '(204 195 175) '(255 255 255)))
-  (size))
-;; HACK added toplevel table as temporary workaround
-(defmethod format-item-display ((item test-item) frame pane)
+(define-formatting-item (test-item (size))
   "dummy items to take up space in the modeline"
   (formatting-table (pane :x-spacing 0)
     (formatting-row (pane)
       (loop for x below (test-item-size item) do
         (with-default-style (pane)
           (format t " [TEST ~D] " x))))))
-
-;;;
-;;; CLIM Commands and Presentation Translators
-;;;
-;; (define-command (raise-window :command-table mode-line)
-;;     ((win))
-;;   (stumpwm::raise-window win))
-;; (define-presentation-to-command-translator
-;;     window-select (stumpwm::window raise-window mode-line)
-;;     '(win)
-;;   (list win))
 
 ;; TODO create for matter functions for these items
 (defstruct groups)
@@ -210,8 +172,8 @@ yellow background colors."
 
 (defun set-default-modeline ()
   "sets the default format of the modeline."
-  (set-mode-line-format (list (make-windows)
-                              (make-spacer :size 1)
+  (set-mode-line-format (list (make-windows-item)
+                              (make-spacer-item :weight 1)
                               (make-test-item :size 4)
-                              (make-spacer :size 1)
-                              (make-date-time))))
+                              (make-spacer-item :weight 1)
+                              (make-date-time-item))))
