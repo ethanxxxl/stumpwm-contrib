@@ -105,17 +105,17 @@ ratio between the weight of that spacer and the total weight of all spacers."
                                 (format-item-display item frame pane)))
                              0))))
         (spacers-weight
-          (reduce #'+ (remove-if-not (lambda (item) (typep item 'spacer))
+          (reduce #'+ (remove-if-not (lambda (item) (typep item 'spacer-item))
                                      (mode-line-format))
-                  :key #'spacer-weight))
+                  :key #'spacer-item-weight))
         ;; FIXME multiple heads could cause problems
         (head-width (stumpwm::head-width (stumpwm::current-head))))
 
     (loop for item in (mode-line-format)
           with start = 0 do
-            (cond ((typep item 'spacer)
+            (cond ((typep item 'spacer-item)
                    (incf start (* (- head-width space-used)
-                                  (/ (spacer-weight item)
+                                  (/ (spacer-item-weight item)
                                      spacers-weight)))
                    (incf start))        ; HACK for some reason this is off by
                                         ; a single pixel.
