@@ -41,7 +41,7 @@ background and `body' are written to the stream specified by `stream'"
 
 ;; TODO add more styling options to this macro to make element shapes more
 ;; visually interesting.
-(defmacro with-default-style ((stream &key (bg +grey+) obj)
+(defmacro with-default-style ((stream &key (bg +grey+) obj presentation-type)
                               &body body)
   "`body' is formatted and drawn to `stream'.
 Every element of the modeline is stored in a cell in a table. This macro creates
@@ -56,13 +56,14 @@ entire cell."
        (singleton-table (,stream :align-x :center :align-y :center
                                  :min-height (cell-height ,stream))
          (if ,obj
-             (with-output-as-presentation (,stream ,obj (type-of ,obj))
+             (with-output-as-presentation (,stream ,obj (or ,presentation-type
+                                                            (type-of ,obj)))
                ,@body)
              ,@body)))))
 
 ;; FIXME if for some reason the modeline isn't initialized when this macro is
 ;; called, then it will not be able to find the command table "mode-line"
-(defmacro define-modeline-command ((name from-type) obj &body body)
+(defmacro define-presentation-command (presentation (obj) &body body)
   "defines a CLIM command command that will be used on the modeline.
 this command will take a single argument, `obj'. Commands defined with this
 macro will accible through output formatted through `with-default-style' that
@@ -72,13 +73,16 @@ This macro defines a CLIM command and presentation-to-command translator. The
 command performs an arbitrary operation on or based on the object. The
 translator allows presentations of the specified data-type to be clicked on, and
 their associated commands run."
-  `(progn
-     (define-command (,name :command-table mode-line) ((,obj))
-       ,@body)
-     (define-presentation-to-command-translator
-         ,(intern (format nil "~A-TRANSLATOR" name))
-         (,from-type ,name mode-line) (,obj)
-       (list ,obj))))
+  (let ((command-name (intern (format nil "~A-COMMAND" presentation)))
+        (translator-name (intern (format nil "~A-TRANSLATOR" presentation))))
+    `(progn
+       (define-presentation-type ,presentation ())
+       (define-command (,command-name :command-table mode-line)
+           ((,obj))
+         ,@body)
+       (define-presentation-to-command-translator ,translator-name
+           (,presentation ,command-name mode-line) (,obj)
+         (list ,obj)))))
 
 (defmacro define-formatting-item ((name &rest slots) &body body)
   "declares a formatting item and all of includes `frame' and `pane' bindings
@@ -86,6 +90,5 @@ to the display pane in the application frame."
   `(progn
      (defstruct ,name ,@slots)
      (defmethod format-item-display ((item ,name) frame pane)
-       (formatting-table (pane)
-         (formatting-row (pane)
-           ,@body)))))
+       (formatting-table-row (pane :x-spacing 0)
+         ,@body))))

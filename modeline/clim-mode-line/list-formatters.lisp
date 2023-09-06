@@ -42,7 +42,7 @@
 
 (in-package :clim-mode-line)
 
-(define-modeline-command (window-picker stumpwm::window) win
+(define-presentation-command window-picker (win)
   (stumpwm:raise-window win))
 
 ;; spacer dummy item, no
@@ -92,7 +92,8 @@ yellow background colors."
 
               ;; print window name and number, associate the window object with
               ;; the text
-              (with-default-style (pane :bg background-color :obj win)
+              (with-default-style (pane :bg background-color :obj win
+                                        :presentation-type 'window-picker)
                 (format pane " ~D: ~A "
                         (stumpwm::window-class win)
                         (stumpwm::window-number win)))))))
@@ -104,6 +105,19 @@ yellow background colors."
       (loop for x below (test-item-size item) do
         (with-default-style (pane)
           (format t " [TEST ~D] " x))))))
+
+(define-formatting-item (brightness-item)
+  (with-default-style (pane :bg +dodger-blue+
+                            :obj "+10%"
+                            :presentation-type 'change-brightness)
+    (format pane " + "))
+  (with-default-style (pane :bg +dark-salmon+
+                            :obj "10%-"
+                            :presentation-type 'change-brightness)
+    (format pane " - ")))
+
+(define-presentation-command change-brightness (shell-cmd)
+  (stumpwm::run-shell-command (format nil "brightnessctl s ~A" shell-cmd)))
 
 ;; TODO create for matter functions for these items
 (defstruct groups)
@@ -117,6 +131,7 @@ yellow background colors."
 (defun set-default-modeline ()
   "sets the default format of the modeline."
   (set-mode-line-format (list (make-windows-item)
+                              (make-brightness-item)
                               (make-spacer-item :weight 1)
                               (make-test-item :size 4)
                               (make-spacer-item :weight 1)
