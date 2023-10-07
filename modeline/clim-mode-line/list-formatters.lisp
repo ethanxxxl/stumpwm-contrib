@@ -41,6 +41,7 @@
 ;;;    after making a change.
 
 (in-package :clim-mode-line)
+(load "~/.stumpwm.d/modules/modeline/clim-mode-line/list-formatters-macros.lisp")
 
 (define-presentation-command window-picker (win)
   (stumpwm:raise-window win))
@@ -107,22 +108,91 @@ yellow background colors."
           (format t " [TEST ~D] " x))))))
 
 (define-formatting-item (brightness-item)
-  (with-default-style (pane :bg +dodger-blue+
-                            :obj "+10%"
-                            :presentation-type 'change-brightness)
-    (format pane " + "))
-  (with-default-style (pane :bg +dark-salmon+
-                            :obj "10%-"
-                            :presentation-type 'change-brightness)
-    (format pane " - ")))
+  (let ((brightness (parse-integer (stumpwm::run-shell-command "brightnessctl g" t)))
+        (max (parse-integer (stumpwm::run-shell-command "brightnessctl m" t))))
+
+    (with-default-style (pane :bg +violet+)
+      (format t " br"))
+    (formatting-cell (pane :align-y :center :align-x :center)
+      (clim-percentage-bar pane (/ brightness max) 100 30))))
+
+(defun clim-percentage-bar (stream percent width height &key (fg +gray40+) (bg +gray60+))
+  (let ((x2 (* percent width)))
+    (draw-rectangle* stream 0 0 width height :ink fg)
+    (draw-rectangle* stream 0 0 x2 height :ink bg)))
 
 (define-presentation-command change-brightness (shell-cmd)
   (stumpwm::run-shell-command (format nil "brightnessctl s ~A" shell-cmd)))
 
+;; FIXME this item assumes that we are using wifi, which isn't necessarily the case.
+(define-formatting-item (network-item)
+  (with-default-style (pane)
+    ;; BUG sometimes nmcli returns strings of length 0
+    (let ((name (string-trim '(#\newline #\: #\*) (stumpwm::run-shell-command
+                                    "nmcli -t -f in-use,ssid device wifi list | grep \"*\"" t)))
+          (strength (parse-integer (stumpwm::run-shell-command
+                                    "nmcli -t -f in-use,signal device wifi list | grep \"*\"" t)
+                                   :start 2)))
+      (format pane " ~A  ~A "
+              (cond ((>= strength 75) "▁▂▄▆")
+                    ((>= strength 50) "▁▂▄ ")
+                    ((>= strength 25) "▁▂  ")
+                    ((>= strength 0) "▁   "))
+              name))))
+
+(define-formatting-item (media-item)
+  (with-default-style (pane :bg +green2+)
+    (format pane " ~A: ~A | " (track-artist) (track-title)))
+  (with-default-style (pane :bg +green2+
+                            :obj :prev
+                            :presentation-type 'playerctl-track)
+    (format pane " < "))
+  (with-default-style (pane :bg +green2+
+                            :obj :play-pause
+                            :presentation-type 'playerctl-track)
+    (format pane " ~A " (play-status)))
+  (with-default-style (pane :bg +green2+
+                            :obj :next
+                            :presentation-type 'playerctl-track)
+    (format pane " > ")) )
+
+(defun track-artist ()
+  "return the track artist as reported by playerctl"
+  (string-trim (string #\newline)
+               (stumpwm::run-shell-command "playerctl metadata xesam:artist" t)))
+
+(defun track-title ()
+  "return the track title as reported by playerctl"
+  (string-trim (string #\newline)
+               (stumpwm::run-shell-command "playerctl metadata xesam:title" t)))
+
+(defun play-status (&optional play pause stop)
+  "returns the current state of the player.
+
+If play, pause, or stop are set, then those characters will be returned intead
+of the default output of playerctl"
+
+  (let ((output (string-right-trim '(#\newline)
+                                   (stumpwm::run-shell-command "playerctl status" t))))
+    (cond ((equal output "Playing")
+           (or play output)
+           )
+          ((equal output "Paused")
+           (or pause output))
+          (t
+           (or stop output)))))
+
+(define-presentation-command playerctl-track (cmd)
+  (cond ((eql cmd :next)
+         (stumpwm::run-shell-command "playerctl next"))
+        ((eql cmd :prev)
+         (stumpwm::run-shell-command "playerctl previous"))
+        ((eql cmd :play-pause)
+         (stumpwm::run-shell-command "playerctl play-pause"))))
+
 ;; TODO create for matter functions for these items
 (defstruct groups)
 (defstruct media)
-(defstruct wifi)
 (defstruct volume)
 (defstruct bluetooth)
 (defstruct battery)
@@ -133,6 +203,7 @@ yellow background colors."
   (set-mode-line-format (list (make-windows-item)
                               (make-brightness-item)
                               (make-spacer-item :weight 1)
-                              (make-test-item :size 4)
                               (make-spacer-item :weight 1)
+                              (make-media-item)
+                              (make-network-item)
                               (make-date-time-item))))
