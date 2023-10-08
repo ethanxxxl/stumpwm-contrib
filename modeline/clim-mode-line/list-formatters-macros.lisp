@@ -85,16 +85,20 @@ their associated commands run."
            (,presentation ,command-name mode-line) (,obj)
          (list ,obj)))))
 
+
 ;; TODO make the error box clickable, and the error should open a dialog box to
 ;; displa the error.
-(defmacro define-formatting-item ((name &rest slots) &body body)
+(defmacro define-formatting-item ((name &key refresh slots) &body body)
   "declares a formatting item and all of includes `frame' and `pane' bindings
 to the display pane in the application frame.
 
 If any errors occur in body, they are ignored. StumpWM shouldn't crash if an
 error is made in the modeline."
   `(progn
-     (defstruct ,name ,@slots)
+     (defclass ,name (formatting-item) ,(if refresh `((refresh :allocation :class
+                                                               :initform ,refresh)
+                                                          ,@slots)
+                                            `(,@slots)))
      (defmethod format-item-display ((item ,name) frame pane)
        (formatting-table-row (pane :x-spacing 0)
          ;; BUG if an error occurs in BODY, everything up to the error may still

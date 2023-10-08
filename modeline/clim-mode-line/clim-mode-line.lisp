@@ -89,6 +89,11 @@ formatted to the output stream in between each formatter when in text mode.")
                     )
     (funcall *mode-line-display-function* frame pane)))
 
+;; TODO this display function should only update certain items under certain
+;; conditions. ie, don't update the network/time module when switching windows.
+;; there is a framework to track this state. each format-item is now a subclass
+;; of formatting-item, and has a field called `refresh' that will contain a list
+;; of the conditions it should be refreshed under.
 (defun display-mode-line-as-list (frame pane)
   "display function that treats`mode-line-formatters' as a list.
 The list is comprised of structures that define a method for the

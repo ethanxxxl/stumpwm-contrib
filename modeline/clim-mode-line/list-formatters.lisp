@@ -45,12 +45,19 @@
 
 (defparameter *modeline-font* (make-text-style "UbuntuMono Nerd Font Propo" "Regular" 18))
 
+;;; parent class for all formatting items.
+;;;
+;;; update-method determines whether an item is updated with the update timer,
+;;; on every click, etc.
+(defclass formatting-item nil
+  ((refresh :allocation :class :initform '(:redisplay :timout))))
+
 ;; spacer dummy item
 ;; spacer item must return something other than nil to not signal an error
-(define-formatting-item (spacer-item (weight)) t)
+(define-formatting-item (spacer-item :slots (weight)) t)
 
 (ql:quickload "local-time")
-(define-formatting-item (date-time-item)
+(define-formatting-item (date-time-item :refresh '(:timeout))
   "Displays the local time and date on the modeline."
   (formatting-table (pane :x-spacing 0)
     (formatting-row (pane)
