@@ -125,7 +125,7 @@ yellow background colors."
           (strength (wifi-strength)))   ; only valid if connected to wifi
       (cond
         ((equalp type "ethernet")
-         (format pane " 󰈀  ~A "
+         (format pane " 󰈀 ~A "
                  (network-addr (network-iface))))
 
         ((equalp type "wifi")
@@ -137,7 +137,7 @@ yellow background colors."
                        ((>= strength 00) "󰤯"))
                  (wifi-ssid)))
 
-        (t (format pane "󱞐"))))))
+        (t (format pane " 󱞐 "))))))
 
 (defun run-program (shell-cmd)
   "runs shell-cmd, returning the results as a string. The result of the program
@@ -177,20 +177,23 @@ error is returned."
 error is returned."
   (parse-integer
    (run-program
-    "nmcli -t -f in-use,signal device wifi list | grep -oP '(?<=\\*:).*'")))
+    "nmcli -t -f in-use,signal device wifi list | grep -oP '(?<=\\*:).*'")
+   :junk-allowed t))
 
 (define-formatting-item (media-item)
+  (with-default-style (pane :bg +green3+)
+    (format pane " ~A " (track-artist)))
   (with-default-style (pane :bg +green2+)
-    (format pane " ~A: ~A |" (track-artist) (track-title)))
-  (with-default-style (pane :bg +green2+
+    (format pane " ~A " (track-title)))
+  (with-default-style (pane :bg +green3+
                             :obj :prev
                             :presentation-type 'playerctl-track)
     (format pane " 󰒮 "))
-  (with-default-style (pane :bg +green2+
+  (with-default-style (pane :bg +green3+
                             :obj :play-pause
                             :presentation-type 'playerctl-track)
     (format pane " ~A " (play-status "" "" "")))
-  (with-default-style (pane :bg +green2+
+  (with-default-style (pane :bg +green3+
                             :obj :next
                             :presentation-type 'playerctl-track)
     (format pane " 󰒭 ")))
