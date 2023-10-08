@@ -5,6 +5,9 @@
                    (safety 3)
                    (debug 3)))
 
+;; load fonts, because they aren't loaded by default
+(mcclim-truetype::register-all-ttf-fonts (find-port))
+
 (defvar *align-x* :left)
 
 (defvar *highlight-drop* nil)
@@ -127,6 +130,7 @@ ratio between the weight of that spacer and the total weight of all spacers."
                      (stream-add-output-record pane record)
                      (incf start (rectangle-width record))))))))
 
+
 (defun display-mode-line-as-table (frame pane)
   (with-table (pane)
     (dolist (line (mode-line-formatters frame))
@@ -183,11 +187,11 @@ ratio between the weight of that spacer and the total weight of all spacers."
   (mapc #'sb-thread:terminate-thread
         (remove-if-not
          (lambda (thr)
-           (equal (slot-value thr 'sb-thread::%name) "CLIM-MODE-LINE"))
+           (equal (slot-value thr 'sb-thread::name) "CLIM-MODE-LINE"))
          (sb-thread:list-all-threads)))
 
   (loop while (find "CLIM-MODE-LINE" (sb-thread:list-all-threads)
-                    :key (lambda (thread) (slot-value thread 'sb-thread::%name)))))
+                    :key (lambda (thread) (slot-value thread 'sb-thread::name)))))
 
 
 (defun debug-kill-modeline ()
@@ -213,7 +217,7 @@ ratio between the weight of that spacer and the total weight of all spacers."
        (sb-thread:with-mutex ((mode-line-mutex frame))
          (let* ((sheet (frame-top-level-sheet frame))
                 (space (compose-space sheet))
-                (width (space-requirement-width space))
+                (width (slot-value frame 'head-width))
 
                 ;; NOTE the height should be whatever the user wants.
                 ;; `space-requirement' seems to default to 100 no matter what
@@ -232,6 +236,13 @@ ratio between the weight of that spacer and the total weight of all spacers."
 
          ;; redisplay by sending it an update once finished.
          (update-mode-line))))))
+
+(defun modeline-width (&optional (frame *stumpwm-modeline-frame*))
+  (sb-thread:with-mutex ((mode-line-mutex frame))
+    (let* ((sheet (frame-top-level-sheet frame))
+           (space (compose-space sheet))
+           (width (space-requirement-width space)))
+      (format t "width: ~S" width))))
 
 ;; BUG there seems to be either a race conditoin or some other odd behavior in
 ;; (redisp). The function usually needs to be called twice, but can't be called

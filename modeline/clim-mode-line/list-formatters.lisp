@@ -43,11 +43,11 @@
 (in-package :clim-mode-line)
 (load "~/.stumpwm.d/modules/modeline/clim-mode-line/list-formatters-macros.lisp")
 
-(define-presentation-command window-picker (win)
-  (stumpwm:raise-window win))
+(defparameter *modeline-font* (make-text-style "UbuntuMono Nerd Font Propo" "Regular" 18))
 
-;; spacer dummy item, no
-(define-formatting-item (spacer-item (weight)))
+;; spacer dummy item
+;; spacer item must return something other than nil to not signal an error
+(define-formatting-item (spacer-item (weight)) t)
 
 (ql:quickload "local-time")
 (define-formatting-item (date-time-item)
@@ -56,7 +56,7 @@
     (formatting-row (pane)
       (with-default-style (pane :bg +light-blue+)
         (local-time::format-timestring
-         t (local-time:now) :format '(" " (:hour 2) ":" (:min 2) " ")))
+         t (local-time:now) :format '(" " (:hour 2) "" (:min 2) " ")))
       (with-default-style (pane :bg +light-coral+)
         (local-time::format-timestring
          t (local-time:now)
@@ -99,13 +99,8 @@ yellow background colors."
                         (stumpwm::window-class win)
                         (stumpwm::window-number win)))))))
 
-(define-formatting-item (test-item (size))
-  "dummy items to take up space in the modeline"
-  (formatting-table (pane :x-spacing 0)
-    (formatting-row (pane)
-      (loop for x below (test-item-size item) do
-        (with-default-style (pane)
-          (format t " [TEST ~D] " x))))))
+(define-presentation-command window-picker (win)
+  (stumpwm:raise-window win))
 
 (define-formatting-item (brightness-item)
   (let ((brightness (parse-integer (stumpwm::run-shell-command "brightnessctl g" t)))
@@ -124,37 +119,81 @@ yellow background colors."
 (define-presentation-command change-brightness (shell-cmd)
   (stumpwm::run-shell-command (format nil "brightnessctl s ~A" shell-cmd)))
 
-;; FIXME this item assumes that we are using wifi, which isn't necessarily the case.
 (define-formatting-item (network-item)
   (with-default-style (pane)
-    ;; BUG sometimes nmcli returns strings of length 0
-    (let ((name (string-trim '(#\newline #\: #\*) (stumpwm::run-shell-command
-                                    "nmcli -t -f in-use,ssid device wifi list | grep \"*\"" t)))
-          (strength (parse-integer (stumpwm::run-shell-command
-                                    "nmcli -t -f in-use,signal device wifi list | grep \"*\"" t)
-                                   :start 2)))
-      (format pane " ~A  ~A "
-              (cond ((>= strength 75) "▁▂▄▆")
-                    ((>= strength 50) "▁▂▄ ")
-                    ((>= strength 25) "▁▂  ")
-                    ((>= strength 0) "▁   "))
-              name))))
+    (let ((type (network-type (network-iface)))
+          (strength (wifi-strength)))   ; only valid if connected to wifi
+      (cond
+        ((equalp type "ethernet")
+         (format pane " 󰈀  ~A "
+                 (network-addr (network-iface))))
+
+        ((equalp type "wifi")
+         (format pane " ~A  ~A "
+                 (cond ((>= strength 80) "󰤨")
+                       ((>= strength 60) "󰤥")
+                       ((>= strength 40) "󰤢")
+                       ((>= strength 20) "󰤟")
+                       ((>= strength 00) "󰤯"))
+                 (wifi-ssid)))
+
+        (t (format pane "󱞐"))))))
+
+(defun run-program (shell-cmd)
+  "runs shell-cmd, returning the results as a string. The result of the program
+is returned as a string, whether that be results or an error"
+  (handler-case (string-right-trim '(#\newline)
+                                   (uiop:run-program shell-cmd :output :string))
+    (error (e) (format nil "~A" e))))
+
+(defun network-iface (&optional (probe-addr "8.8.8.8"))
+  "returns the interface that is being used to route traffic to the internet.
+
+this works by seeing what route the kernel would choose to send a packet to
+`probe-addr'. The man page for ip-route says that no packets are actually sent.
+`probe-addr' can therefore be arbitrary, but google's IP was chosen for
+simplicity"
+  (run-program (format nil "ip route get ~A | grep -oP '(?<=dev )\\S+'"
+                       probe-addr)))
+
+(defun network-type (iface)
+  "returns a symbol representing the interface type of `iface'"
+  (run-program
+   (format nil "nmcli -f GENERAL.TYPE -t -m tabular device show ~A" iface)))
+
+(defun network-addr (iface)
+  "returns the IPV4 address of the interface"
+  (run-program
+   (format nil "nmcli -f IP4.ADDRESS -t -m tabular device show ~A" iface)))
+
+(defun wifi-ssid ()
+  "returns the SSID of the current wifi interface if connected. Otherwise, a text
+error is returned."
+  (run-program
+   "nmcli -t -f in-use,ssid device wifi list | grep -oP '(?<=\\*:).*'"))
+
+(defun wifi-strength ()
+  "returns the strength of the wifi connection, if connected. Otherwise, a text
+error is returned."
+  (parse-integer
+   (run-program
+    "nmcli -t -f in-use,signal device wifi list | grep -oP '(?<=\\*:).*'")))
 
 (define-formatting-item (media-item)
   (with-default-style (pane :bg +green2+)
-    (format pane " ~A: ~A | " (track-artist) (track-title)))
+    (format pane " ~A: ~A |" (track-artist) (track-title)))
   (with-default-style (pane :bg +green2+
                             :obj :prev
                             :presentation-type 'playerctl-track)
-    (format pane " < "))
+    (format pane " 󰒮 "))
   (with-default-style (pane :bg +green2+
                             :obj :play-pause
                             :presentation-type 'playerctl-track)
-    (format pane " ~A " (play-status)))
+    (format pane " ~A " (play-status "" "" "")))
   (with-default-style (pane :bg +green2+
                             :obj :next
                             :presentation-type 'playerctl-track)
-    (format pane " > ")) )
+    (format pane " 󰒭 ")))
 
 (defun track-artist ()
   "return the track artist as reported by playerctl"
@@ -201,9 +240,10 @@ of the default output of playerctl"
 (defun set-default-modeline ()
   "sets the default format of the modeline."
   (set-mode-line-format (list (make-windows-item)
-                              (make-brightness-item)
+                              ;; (make-brightness-item)
                               (make-spacer-item :weight 1)
                               (make-spacer-item :weight 1)
                               (make-media-item)
                               (make-network-item)
-                              (make-date-time-item))))
+                              (make-date-time-item)
+                              )))

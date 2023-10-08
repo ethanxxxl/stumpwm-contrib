@@ -50,16 +50,17 @@ horizontally in the cell. A background color specified by `bg' is applied to the
 entire cell."
   `(formatting-cell (,stream :align-x :left :align-y :top)
      (with-background (,stream :bg ,bg)
-       ;; NOTE rectangle is a workaround due to a bug with :min-height in mcclim
-       (draw-rectangle* ,stream 0 0 0 (cell-height ,stream)
-                        :ink +transparent-ink+)
-       (singleton-table (,stream :align-x :center :align-y :center
-                                 :min-height (cell-height ,stream))
-         (if ,obj
-             (with-output-as-presentation (,stream ,obj (or ,presentation-type
-                                                            (type-of ,obj)))
-               ,@body)
-             ,@body)))))
+       (with-text-style (,stream *modeline-font*)
+         ;; NOTE rectangle is a workaround due to a bug with :min-height in mcclim
+         (draw-rectangle* ,stream 0 0 0 (cell-height ,stream)
+                          :ink +transparent-ink+)
+         (singleton-table (,stream :align-x :center :align-y :center
+                                   :min-height (cell-height ,stream))
+           (if ,obj
+               (with-output-as-presentation (,stream ,obj (or ,presentation-type
+                                                              (type-of ,obj)))
+                 ,@body)
+               ,@body))))))
 
 ;; FIXME if for some reason the modeline isn't initialized when this macro is
 ;; called, then it will not be able to find the command table "mode-line"
@@ -84,11 +85,20 @@ their associated commands run."
            (,presentation ,command-name mode-line) (,obj)
          (list ,obj)))))
 
+;; TODO make the error box clickable, and the error should open a dialog box to
+;; displa the error.
 (defmacro define-formatting-item ((name &rest slots) &body body)
   "declares a formatting item and all of includes `frame' and `pane' bindings
-to the display pane in the application frame."
+to the display pane in the application frame.
+
+If any errors occur in body, they are ignored. StumpWM shouldn't crash if an
+error is made in the modeline."
   `(progn
      (defstruct ,name ,@slots)
      (defmethod format-item-display ((item ,name) frame pane)
        (formatting-table-row (pane :x-spacing 0)
-         ,@body))))
+         ;; BUG if an error occurs in BODY, everything up to the error may still
+         ;; be drawn to the modeline. this can screw up the spacers and
+         ;; positioning of modeline elements.
+         (unless (ignore-errors (progn ,@body))
+           (with-default-style (pane :bg +red+) (format pane " ERROR ")))))))
