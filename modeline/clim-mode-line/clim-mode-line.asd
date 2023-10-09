@@ -15,4 +15,11 @@
                (:file "formatters")
                (:file "list-formatters")
                (:file "gestures")
-               (:file "commands-and-translators")))
+               (:file "commands-and-translators")
+
+               ;; modules
+               (:file "modules/bluetooth.lisp")
+               (:file "modules/media.lisp")
+               (:file "modules/network.lisp")
+               (:file "modules/time.lisp")
+               (:file "modules/windows.lisp")))
