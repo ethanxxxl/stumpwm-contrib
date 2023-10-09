@@ -18,8 +18,8 @@
                (:file "commands-and-translators")
 
                ;; modules
-               (:file "modules/bluetooth.lisp")
-               (:file "modules/media.lisp")
-               (:file "modules/network.lisp")
-               (:file "modules/time.lisp")
-               (:file "modules/windows.lisp")))
+               (:file "modules/bluetooth")
+               (:file "modules/media")
+               (:file "modules/network")
+               (:file "modules/time")
+               (:file "modules/windows")))

@@ -49,26 +49,10 @@ formatted to the output stream in between each formatter when in text mode.")
    (default display)))
 
 (defmethod (setf mode-line-formatters) (new (frame mode-line))
+  "updates the formatters list. This may be called at any time, so it retrieves
+the lock on the application"
   (sb-thread:with-mutex ((mode-line-mutex frame))
-    (setf (slot-value frame 'formatters) new)
-    (redisplay-frame-panes frame :force-p t)
-    (stumpwm:call-in-main-thread
-     (lambda ()
-       (sb-thread:with-mutex ((mode-line-mutex frame))
-         (let* ((sheet (frame-top-level-sheet frame))
-                (space (compose-space sheet))
-                (width (space-requirement-width space))
-                (height (space-requirement-height space)))
-           (move-and-resize-sheet sheet 0 0 width height))
-         (mapcar 'stumpwm::resize-mode-line
-                 stumpwm::*mode-lines*)
-         (mapcar (lambda (group)
-                   (mapcar (lambda (head)
-                             (stumpwm::group-sync-head
-                              group head))
-                           (stumpwm::group-heads group)))
-                 (stumpwm::screen-groups
-                  (stumpwm:current-screen))))))))
+    (setf (slot-value frame 'formatters) new)))
 
 (defun mode-line-format ()
   (mode-line-formatters *stumpwm-modeline-frame*))
@@ -83,12 +67,10 @@ formatted to the output stream in between each formatter when in text mode.")
 (defvar *mode-line-display-function* 'display-mode-line-as-list)
 
 (defun display-mode-line (frame pane)
-  (with-text-style (pane ;; (frame-text-style frame)
-                    ;; TODO: We may need to 
-                    ;; (make-text-style "DejaVu Sans Mono" "Book" 14)
-                    (make-text-style nil nil nil) ; use default text style
-                    )
-    (funcall *mode-line-display-function* frame pane)))
+  "modeline display function. This is the function that is bound to the display
+pane of the application frame. alternate display methods are supported and can
+be configured via the *mode-line-display-function* parameter."
+  (funcall *mode-line-display-function* frame pane))
 
 ;; TODO this display function should only update certain items under certain
 ;; conditions. ie, don't update the network/time module when switching windows.
@@ -117,7 +99,9 @@ ratio between the weight of that spacer and the total weight of all spacers."
           (reduce #'+ (remove-if-not (lambda (item) (typep item 'spacer-item))
                                      (mode-line-format))
                   :key #'weight))
+
         ;; FIXME multiple heads could cause problems
+        ;; FIXME should headwidth found in frame rather than from stumpwm.
         (head-width (stumpwm::head-width (stumpwm::current-head))))
 
     (loop for item in (mode-line-format)
@@ -136,22 +120,14 @@ ratio between the weight of that spacer and the total weight of all spacers."
                      (stream-add-output-record pane record)
                      (incf start (rectangle-width record))))))))
 
-
-(defun display-mode-line-as-table (frame pane)
-  (with-table (pane)
-    (dolist (line (mode-line-formatters frame))
-      (with-table-row ()
-        (funcall (car line) frame pane (cdr line))))))
-
-(defun display-mode-line-as-text (frame pane)
-  (dolist (line (mode-line-formatters frame))
-    (funcall (car line) frame pane (cdr line))))
-
 ;; Glue between this and StumpWM
 
-(defun update-mode-line ()
-  (when *stumpwm-modeline-frame*
-    (execute-frame-command *stumpwm-modeline-frame* '(com-refresh))))
+(defun update-mode-line (&optional (frame *stumpwm-modeline-frame*))
+  "thread safe function to update the modeline. Asks the application frame to
+update itself."
+  (sb-thread:with-mutex ((mode-line-mutex frame))
+    (when *stumpwm-modeline-frame*
+      (execute-frame-command *stumpwm-modeline-frame* '(com-refresh)))))
 
 (defun update-mode-line-hanger (&rest ignore)
   (declare (ignore ignore))
@@ -176,15 +152,14 @@ ratio between the weight of that spacer and the total weight of all spacers."
        :name "CLIM-MODE-LINE")
 
       ;; don't release the mutex until clim is done initializing
-      (loop until (frame-top-level-sheet frame)))
+      (loop until (equalp :enabled (frame-state frame))))
 
     ;; periodically updates the modeline to sure things like the time are
     ;; updated.
     (sb-thread:make-thread
      (lambda ()
        (loop
-         (sb-thread:with-mutex ((mode-line-mutex frame))
-           (update-mode-line))
+         (update-mode-line)
          (sleep 5)))
      :name "CLIM-MODE-LINE")))          ; keep names the same for easy clean up.
 
@@ -200,57 +175,47 @@ ratio between the weight of that spacer and the total weight of all spacers."
                     :key (lambda (thread) (slot-value thread 'sb-thread::name)))))
 
 
-(defun debug-kill-modeline ()
+(defun debug-kill-modeline (&optional (frame *stumpwm-modeline-frame*))
   (when *stumpwm-modeline-frame*
-    (execute-frame-command *stumpwm-modeline-frame* '(com-quit)))
+    (sb-thread:with-mutex ((mode-line-mutex frame))
+      (execute-frame-command *stumpwm-modeline-frame* '(com-quit))))
   (setf *stumpwm-modeline-frame* nil)
   (setf stumpwm::*mode-lines* nil)
   (kill-rogue-threads))
 
-(defun debug-kill-restart-hard ()
-  (when *stumpwm-modeline-frame*
-    (execute-frame-command *stumpwm-modeline-frame* '(com-quit)))
-  (setf *stumpwm-modeline-frame* nil)
-  (setf stumpwm::*mode-lines* nil)
-  (kill-rogue-threads)
+(defun debug-kill-restart-hard (&optional (frame *stumpwm-modeline-frame*))
+  (debug-kill-modeline frame)
   (stumpwm:run-commands "restart-hard"))
 
 (defun redisp (&optional (frame *stumpwm-modeline-frame*))
-  (sb-thread:with-mutex ((mode-line-mutex frame))
-    (redisplay-frame-panes frame :force-p t)
-    (stumpwm:call-in-main-thread
-     (lambda ()
+  (stumpwm:call-in-main-thread
+   (lambda ()
+     (let ((sheet (frame-top-level-sheet frame))
+           (width (slot-value frame 'head-width))
+           (height (slot-value frame 'clim-internals::geometry-height)))
        (sb-thread:with-mutex ((mode-line-mutex frame))
-         (let* ((sheet (frame-top-level-sheet frame))
-                (space (compose-space sheet))
-                (width (slot-value frame 'head-width))
+         (move-and-resize-sheet sheet 0 0 width height)))
 
-                ;; NOTE the height should be whatever the user wants.
-                ;; `space-requirement' seems to default to 100 no matter what
-                ;; the frame height is set to.
-                (height (slot-value frame 'clim-internals::geometry-height)))
-           (move-and-resize-sheet sheet 0 0 width height))
-         (mapcar 'stumpwm::resize-mode-line
-                 stumpwm::*mode-lines*)
-         (mapcar (lambda (group)
-                   (mapcar (lambda (head)
-                             (stumpwm::group-sync-head
-                              group head))
-                           (stumpwm::group-heads group)))
-                 (stumpwm::screen-groups
-                  (stumpwm:current-screen)))
+     ;; sets the size of the X window to (- frame-width (* 2 border))
+     ;; sets the height of the X window to (+ modeline-height (* 2 border))
+     ;; repositions the X window at either the top or bottom of the screen.
+     (mapcar 'stumpwm::resize-mode-line
+             stumpwm::*mode-lines*)
 
-         ;; redisplay by sending it an update once finished.
-         (update-mode-line))))))
+     ;; in case the modeline height chAnged, every window in every group on the
+     ;; current screen so that there are no gaps or overlap
+     (mapcar (lambda (group)
+               (mapcar (lambda (head)
+                         (stumpwm::group-sync-head
+                          group head))
+                       (stumpwm::group-heads group)))
+             (stumpwm::screen-groups
+              (stumpwm:current-screen)))
 
-(defun modeline-width (&optional (frame *stumpwm-modeline-frame*))
-  (sb-thread:with-mutex ((mode-line-mutex frame))
-    (let* ((sheet (frame-top-level-sheet frame))
-           (space (compose-space sheet))
-           (width (space-requirement-width space)))
-      (format t "width: ~S" width))))
+     ;; finish by re-running the display-function
+     (update-mode-line))))
 
-;; BUG there seems to be either a race conditoin or some other odd behavior in
+;; BUG there seems to be either a race condition or some other odd behavior in
 ;; (redisp). The function usually needs to be called twice, but can't be called
 ;; "too quickly" after itself.
 (defun reset-modeline ()
@@ -259,3 +224,25 @@ ratio between the weight of that spacer and the total weight of all spacers."
   (app-main)
   (set-default-modeline)
   (redisp))
+
+
+(defclass lock-tester ()
+  ((mutex :accessor mutex
+          :initform (sb-thread:make-mutex :name "test-mutex"))
+   (test-val :accessor val
+             :initform 0)))
+
+(defparameter *lock-test* (make-instance 'lock-tester))
+
+(defun inc-test (&optional (a *lock-test*))
+  (sb-thread:with-mutex ((mutex a))
+    (incf (val a))))
+
+(defun get-val (&optional (a *lock-test*))
+  (sb-thread:with-mutex ((mutex a))
+    (val a)))
+
+(defparameter *incrementer-thread*
+  (sb-thread:make-thread (lambda ()
+                           (loop (sleep 5)
+                                 (inc-test)))))
