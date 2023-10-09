@@ -60,7 +60,7 @@ entire cell."
                (with-output-as-presentation (,stream ,obj (or ,presentation-type
                                                               (type-of ,obj)))
                  ,@body)
-               ,@body))))))
+               (progn ,@body)))))))
 
 ;; FIXME if for some reason the modeline isn't initialized when this macro is
 ;; called, then it will not be able to find the command table "mode-line"

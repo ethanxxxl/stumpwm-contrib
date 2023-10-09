@@ -54,7 +54,7 @@
 
 ;; spacer dummy item
 ;; spacer item must return something other than nil to not signal an error
-(define-formatting-item (spacer-item :slots (weight)) t)
+(define-formatting-item (spacer-item :slots ((weight :accessor weight))) t)
 
 (ql:quickload "local-time")
 (define-formatting-item (date-time-item :refresh '(:timeout))
@@ -146,12 +146,23 @@ yellow background colors."
 
         (t (format pane " 󱞐 "))))))
 
-(defun run-program (shell-cmd)
+(defun run-program (shell-cmd &key error)
   "runs shell-cmd, returning the results as a string. The result of the program
-is returned as a string, whether that be results or an error"
+is returned as a string, whether that be results or an error
+
+`error-case' may be a function, a string, or nil. If it is a string, then the
+string is printed in the case of an error, and the error object is not
+processed. If it is a function, the function must take a single argument, which
+is the error. if it is NIL, then the error is returned without processing."
   (handler-case (string-right-trim '(#\newline)
                                    (uiop:run-program shell-cmd :output :string))
-    (error (e) (format nil "~A" e))))
+
+    (error (e)
+      (cond ((typep error 'string)
+             error)
+            ((typep error 'compiled-function)
+             (funcall error e))
+            (t e)))))
 
 (defun network-iface (&optional (probe-addr "8.8.8.8"))
   "returns the interface that is being used to route traffic to the internet.
@@ -161,30 +172,35 @@ this works by seeing what route the kernel would choose to send a packet to
 `probe-addr' can therefore be arbitrary, but google's IP was chosen for
 simplicity"
   (run-program (format nil "ip route get ~A | grep -oP '(?<=dev )\\S+'"
-                       probe-addr)))
+                       probe-addr)
+               :error "ERROR: couldn't find an active interface"))
 
 (defun network-type (iface)
   "returns a symbol representing the interface type of `iface'"
   (run-program
-   (format nil "nmcli -f GENERAL.TYPE -t -m tabular device show ~A" iface)))
+   (format nil "nmcli -f GENERAL.TYPE -t -m tabular device show ~A" iface)
+   :error "ERROR: couldn't determine interface type"))
 
 (defun network-addr (iface)
   "returns the IPV4 address of the interface"
   (run-program
-   (format nil "nmcli -f IP4.ADDRESS -t -m tabular device show ~A" iface)))
+   (format nil "nmcli -f IP4.ADDRESS -t -m tabular device show ~A" iface)
+   :error "ERROR: Couldn't find ipv4 address"))
 
 (defun wifi-ssid ()
   "returns the SSID of the current wifi interface if connected. Otherwise, a text
 error is returned."
   (run-program
-   "nmcli -t -f in-use,ssid device wifi list | grep -oP '(?<=\\*:).*'"))
+   "nmcli -t -f in-use,ssid device wifi list | grep -oP '(?<=\\*:).*'"
+   :error "ERROR: couldn't find SSID"))
 
 (defun wifi-strength ()
   "returns the strength of the wifi connection, if connected. Otherwise, a text
 error is returned."
   (parse-integer
    (run-program
-    "nmcli -t -f in-use,signal device wifi list | grep -oP '(?<=\\*:).*'")
+    "nmcli -t -f in-use,signal device wifi list | grep -oP '(?<=\\*:).*'"
+    :error "ERROR: couldn't find wifi strength")
    :junk-allowed t))
 
 (define-formatting-item (media-item)
@@ -224,8 +240,7 @@ of the default output of playerctl"
   (let ((output (string-right-trim '(#\newline)
                                    (stumpwm::run-shell-command "playerctl status" t))))
     (cond ((equal output "Playing")
-           (or play output)
-           )
+           (or play output))
           ((equal output "Paused")
            (or pause output))
           (t
@@ -239,21 +254,117 @@ of the default output of playerctl"
         ((eql cmd :play-pause)
          (stumpwm::run-shell-command "playerctl play-pause"))))
 
+;; TODO the name of the bluetooth device to be hid when clicked on.
+;; TODO make foreground color blue when bluetooth is on, grayed when it is off
+;; TODO when you click the bluetooth symbol, you toggle between on off, and
+;;      scanning
+;; TODO when you right click on the bluetooth symbol when scanning, it should
+;;      pull up a list of devices
+(define-formatting-item (bluetooth-item :slots (show-name))
+  (with-default-style (pane :bg +white+)
+    (format pane " ~A "
+            (cond ((and (bluetooth-power) (bluetooth-scanning))
+                   "󰂳")
+                  ((and (bluetooth-power) (bluetooth-device-name))
+                   "󰂱")
+                  ((bluetooth-power)
+                   "󰂯")
+                  ((not (bluetooth-power))
+                   "󰂲")))
+
+    (when (typep (bluetooth-device-name) 'string)
+      (format pane "~A " (bluetooth-device-name)))))
+
+(defun bluetooth-power ()
+  "returns t if bluetooth is powered, nil if it isn't."
+  (equalp "yes"
+          (run-program "bluetoothctl show | grep -oP '(?<=Powered: )\\S+'")))
+
+(defun bluetooth-scanning ()
+  (equalp "yes"
+          (run-program
+           "bluetoothctl show | grep -oP '(?<=Discovering: )\\S+'")))
+
+(defun percentage-icon (val icon-string)
+  "icons stored in a string (ex: \"ABCDEFG\"). The nth icon will be returned,
+depending on val"
+  (char icon-string (floor (* (/ val 101) (length icon-string)))))
+
+(defun bluetooth-device-info (field)
+  "returns the device value specified by field. If the field doesn't exist, an
+error will be returned instead of a string."
+  (run-program (format nil "bluetoothctl info | grep -oP '(?<=~A: )\\S+'"
+                       field)))
+
+(defparameter *bluetooth-device-icons*
+  '(("audio-card" . "󰤽")
+    ("audio-headphones" . "󰋋")
+    ("audio-headset" . "󰋎")
+    ("camera-photo" . "")
+    ("camera-video" . "")
+    ("computer" . "󰇄")
+    ("input-gaming" . "󰊴")
+    ("input-keyboard" . "󰌌")
+    ("input-mouse" . "󰍽")
+    ("input-tablet" . "󰓷")
+    ("modem" . "󱕙")
+    ("multimedia-player" . "")
+    ("network-wireless" . "󰑩")
+    ("phone" . "")
+    ("printer" . "󰐪")
+    ("scanner" . "󰚫")
+    ("unknown" . "")
+    ("video-display" . "󱒃")))
+
+(defun bluetooth-battery-icon (device level &key show-percentage)
+  "returns the battery level icon of the bluetooth device if it is available"
+  (format nil "~A~A"
+          (cond ((equalp device "input-gaming")
+                 (percentage-icon level "󰝌󰝎󰝏󰝍"))
+                (t
+                 (percentage-icon level "󰤾󰤿󰥀󰥁󰥂󰥃󰥄󰥅󰥆󰥈")))
+          (if show-percentage
+              (format nil " ~D%" level)
+              "")))
+
+(defun bluetooth-battery-level ()
+  "returns the battery percentage of the connected bluetooth device as decimal
+percentage. If the connected bluetooth device doesn't provide battery
+information, then an error is returned."
+  (let ((level (bluetooth-device-info "Battery Percentage")))
+    (if (typep level 'string)
+        (parse-integer level :junk-allowed t :radix 16 :start 2)
+        level)))
+
+(defun bluetooth-device-name (&optional (icon-alist *bluetooth-device-icons*))
+  (let ((alias (bluetooth-device-info "Alias"))
+        (icon (bluetooth-device-info "Icon")))
+    (when (typep alias 'string)
+      (format nil "~A ~A"
+              (format nil "~A~A"
+                      (cdr (assoc icon icon-alist :test #'equalp))
+                      (if (typep (bluetooth-battery-level) 'integer)
+                          (bluetooth-battery-icon icon
+                                                  (bluetooth-battery-level))
+                          ""))
+
+              alias))))
+
 ;; TODO create for matter functions for these items
 (defstruct groups)
 (defstruct media)
 (defstruct volume)
-(defstruct bluetooth)
 (defstruct battery)
 (defstruct weather)
 
 (defun set-default-modeline ()
   "sets the default format of the modeline."
-  (set-mode-line-format (list (make-windows-item)
+  (set-mode-line-format (list (make-instance 'windows-item)
                               ;; (make-brightness-item)
-                              (make-spacer-item :weight 1)
-                              (make-spacer-item :weight 1)
-                              (make-media-item)
-                              (make-network-item)
-                              (make-date-time-item)
+                              (let ((s (make-instance 'spacer-item))) (setf (slot-value s 'weight) 1) s)
+                              (let ((s (make-instance 'spacer-item))) (setf (slot-value s 'weight) 1) s)
+                              (make-instance 'media-item)
+                              (make-instance 'bluetooth-item)
+                              (make-instance 'network-item)
+                              (make-instance 'date-time-item)
                               )))

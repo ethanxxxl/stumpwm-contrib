@@ -42,6 +42,7 @@ formatted to the output stream in between each formatter when in text mode.")
                :accessor mode-line-head-width))
   (:panes (display :application
                    :display-function 'display-mode-line
+                   :background +gray10+
                    :scroll-bars nil
                    :borders nil))
   (:layouts
@@ -115,7 +116,7 @@ ratio between the weight of that spacer and the total weight of all spacers."
         (spacers-weight
           (reduce #'+ (remove-if-not (lambda (item) (typep item 'spacer-item))
                                      (mode-line-format))
-                  :key #'spacer-item-weight))
+                  :key #'weight))
         ;; FIXME multiple heads could cause problems
         (head-width (stumpwm::head-width (stumpwm::current-head))))
 
@@ -123,7 +124,7 @@ ratio between the weight of that spacer and the total weight of all spacers."
           with start = 0 do
             (cond ((typep item 'spacer-item)
                    (incf start (* (- head-width space-used)
-                                  (/ (spacer-item-weight item)
+                                  (/ (weight item)
                                      spacers-weight)))
                    (incf start))        ; HACK for some reason this is off by
                                         ; a single pixel.
