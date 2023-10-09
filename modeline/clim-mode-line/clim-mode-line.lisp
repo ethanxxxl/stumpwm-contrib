@@ -50,7 +50,7 @@ formatted to the output stream in between each formatter when in text mode.")
 
 (defmethod (setf mode-line-formatters) (new (frame mode-line))
   "updates the formatters list. This may be called at any time, so it retrieves
-the lock on the application"
+the lock on the application."
   (sb-thread:with-mutex ((mode-line-mutex frame))
     (setf (slot-value frame 'formatters) new)))
 
@@ -119,6 +119,16 @@ ratio between the weight of that spacer and the total weight of all spacers."
                      (setf (output-record-position record) (values start 0))
                      (stream-add-output-record pane record)
                      (incf start (rectangle-width record))))))))
+
+(defun display-mode-line-as-table (frame pane)
+  (with-table (pane)
+    (dolist (line (mode-line-formatters frame))
+      (with-table-row ()
+        (funcall (car line) frame pane (cdr line))))))
+
+(defun display-mode-line-as-text (frame pane)
+  (dolist (line (mode-line-formatters frame))
+    (funcall (car line) frame pane (cdr line))))
 
 ;; Glue between this and StumpWM
 
@@ -227,25 +237,3 @@ update itself."
   (app-main)
   (set-default-modeline)
   (redisp))
-
-
-(defclass lock-tester ()
-  ((mutex :accessor mutex
-          :initform (sb-thread:make-mutex :name "test-mutex"))
-   (test-val :accessor val
-             :initform 0)))
-
-(defparameter *lock-test* (make-instance 'lock-tester))
-
-(defun inc-test (&optional (a *lock-test*))
-  (sb-thread:with-mutex ((mutex a))
-    (incf (val a))))
-
-(defun get-val (&optional (a *lock-test*))
-  (sb-thread:with-mutex ((mutex a))
-    (val a)))
-
-(defparameter *incrementer-thread*
-  (sb-thread:make-thread (lambda ()
-                           (loop (sleep 5)
-                                 (inc-test)))))
