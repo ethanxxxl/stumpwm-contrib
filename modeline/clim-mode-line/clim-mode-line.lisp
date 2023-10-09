@@ -180,7 +180,10 @@ update itself."
     (sb-thread:with-mutex ((mode-line-mutex frame))
       (execute-frame-command *stumpwm-modeline-frame* '(com-quit))))
   (setf *stumpwm-modeline-frame* nil)
-  (setf stumpwm::*mode-lines* nil)
+
+  ;; kill all modelines
+  (stumpwm::call-in-main-thread (lambda ()
+                                  (setf stumpwm::*mode-lines* nil)))
   (kill-rogue-threads))
 
 (defun debug-kill-restart-hard (&optional (frame *stumpwm-modeline-frame*))
