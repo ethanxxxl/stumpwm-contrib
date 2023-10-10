@@ -46,11 +46,25 @@
 (defparameter *modeline-font* (make-text-style "UbuntuMono Nerd Font Propo" "Regular" 18))
 
 (defclass formatting-item nil
-  ((refresh :allocation :class :initform '(:redisplay :timout)))
+  ((refresh :accessor refresh-groups
+            :allocation :class
+            :initform '(:redisplay :timeout))
+   (output :accessor output-record
+           :initform nil
+           :documentation
+           "cache for output-records of the formatting item."))
   (:documentation
    "parent class for all formatting items, used in the define-formatting-item
 macro. update-method determines whether an item is updated with the
 update-timer, redisp, etc."))
+
+(defun schedule-refresh (refresh-group &optional frame)
+  "refreshes items that have a tag that matches refresh-group by clearing their
+output record cache."
+
+  (loop for item in (remove-if-not (lambda (i) (find refresh-group (refresh-groups i)))
+                                   (modeline-list-format))
+        do (setf (output-record item) nil)))
 
 ;; spacer dummy item
 ;; spacer item must return something other than nil to not signal an error
@@ -64,6 +78,26 @@ update-timer, redisp, etc."))
       (format t " br"))
     (formatting-cell (pane :align-y :center :align-x :center)
       (clim-percentage-bar pane (/ brightness max) 100 30))))
+
+(defun format-item-width (item frame pane &key (use-cached-output t))
+  "returns the width of item. Item must be a proper formatting item, otherwise this
+function will throw an error."
+
+  ;; use cached output if possible. Otherwise, recalculate the output.
+  (rectangle-width
+   (or (and use-cached-output
+            (output-record item))
+       (with-output-to-output-record (pane)
+         (format-item-display item frame pane)))))
+
+(defun format-item-output (item frame pane)
+  "returns a CLIM output record from drawing item. item must be a proper
+formatting-item, or else this function will throw an error."
+  (with-output-to-output-record (pane)
+    (format-item-display item frame pane)))
+
+(defun debug-format-items ()
+  (slot-value *stumpwm-modeline-frame* 'formatters))
 
 (defun clim-percentage-bar (stream percent width height
                             &key (fg +gray40+) (bg +gray60+))
@@ -106,5 +140,4 @@ is the error. if it is NIL, then the error is returned without processing."
                               (make-instance 'media-item)
                               (make-instance 'bluetooth-item)
                               (make-instance 'network-item)
-                              (make-instance 'date-time-item)
-                              )))
+                              (make-instance 'date-time-item))))

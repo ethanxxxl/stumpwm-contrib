@@ -80,7 +80,13 @@ their associated commands run."
        (define-presentation-type ,presentation ())
        (define-command (,command-name :command-table mode-line)
            ((,obj))
-         ,@body)
+         ,@body
+
+         ;; HACK this brute force refreshes the entire modeline. Only the
+         ;; format item that this command is a part of needs to be refreshed
+         ;; though. An entire refresh isn't too expensive though.
+         (schedule-refresh :timeout)
+         (update-mode-line))
        (define-presentation-to-command-translator ,translator-name
            (,presentation ,command-name mode-line) (,obj)
          (list ,obj)))))

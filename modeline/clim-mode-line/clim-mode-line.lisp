@@ -72,11 +72,18 @@ pane of the application frame. alternate display methods are supported and can
 be configured via the *mode-line-display-function* parameter."
   (funcall *mode-line-display-function* frame pane))
 
+(defun modeline-list-format ()
+  "returns a list of modeline formatters, ensuring that there are only
+list-formatters present."
+  (remove-if-not (lambda (item) (typep item 'formatting-item))
+                 (slot-value *stumpwm-modeline-frame* 'formatters)))
+
 ;; TODO this display function should only update certain items under certain
 ;; conditions. ie, don't update the network/time module when switching windows.
 ;; there is a framework to track this state. each format-item is now a subclass
 ;; of formatting-item, and has a field called `refresh' that will contain a list
 ;; of the conditions it should be refreshed under.
+;; BUG when the spacers sometimes "lag behind" the size of other elements during a timout redisplay
 (defun display-mode-line-as-list (frame pane)
   "display function that treats`mode-line-formatters' as a list.
 The list is comprised of structures that define a method for the
@@ -86,39 +93,39 @@ spacer items.
 
 Spacers take up all available space. The width of an individual spacer is the
 ratio between the weight of that spacer and the total weight of all spacers."
-  (let ((space-used
-          (reduce #'+ (mode-line-format)
-                  :key (lambda (item)
-                         (if (find-method #'format-item-display '()
-                                          (list (type-of item) t t) nil)
-                             (rectangle-width
-                              (with-output-to-output-record (pane)
-                                (format-item-display item frame pane)))
-                             0))))
-        (spacers-weight
-          (reduce #'+ (remove-if-not (lambda (item) (typep item 'spacer-item))
-                                     (mode-line-format))
-                  :key #'weight))
+  (sb-thread:with-mutex ((mode-line-mutex frame))
+    ;; if an item is missing a cached output, rerun it's display function.
+    (loop for item in (modeline-list-format) do
+      (unless (output-record item)
+        (setf (output-record item) (format-item-output item frame pane))))
 
-        ;; FIXME multiple heads could cause problems
-        ;; FIXME should headwidth found in frame rather than from stumpwm.
-        (head-width (stumpwm::head-width (stumpwm::current-head))))
+    ;; TODO next, only use the cached output-records for the following calculations.
+    (let ((space-used (reduce #'+ (mapcar (lambda (item)
+                                            (format-item-width item frame pane))
+                                          (modeline-list-format))))
+          (spacers-weight
+            (reduce #'+ (remove-if-not (lambda (item) (typep item 'spacer-item))
+                                       (modeline-list-format))
+                    :key #'weight))
 
-    (loop for item in (mode-line-format)
-          with start = 0 do
-            (cond ((typep item 'spacer-item)
-                   (incf start (* (- head-width space-used)
-                                  (/ (weight item)
-                                     spacers-weight)))
-                   (incf start))        ; HACK for some reason this is off by
+          ;; FIXME multiple heads could cause problems
+          ;; FIXME should headwidth found in frame rather than from stumpwm.
+          (head-width (stumpwm::head-width (stumpwm::current-head))))
+
+      (loop for item in (modeline-list-format)
+            with start = 0 do
+              (cond ((typep item 'spacer-item)
+                     (incf start (* (- head-width space-used)
+                                    (/ (weight item)
+                                       spacers-weight)))
+                     (incf start))      ; HACK for some reason this is off by
                                         ; a single pixel.
-                  ((find-method #'format-item-display '()
-                                (list (type-of item) t t) nil)
-                   (let ((record (with-output-to-output-record (pane)
-                                   (format-item-display item frame pane))))
-                     (setf (output-record-position record) (values start 0))
-                     (stream-add-output-record pane record)
-                     (incf start (rectangle-width record))))))))
+                    ((find-method #'format-item-display '()
+                                  (list (type-of item) t t) nil)
+                     (with-accessors ((record output-record)) item
+                       (setf (output-record-position record) (values start 0))
+                       (stream-add-output-record pane record)
+                       (incf start (rectangle-width record)))))))))
 
 (defun display-mode-line-as-table (frame pane)
   (with-table (pane)
@@ -140,8 +147,11 @@ update itself."
       (execute-frame-command *stumpwm-modeline-frame* '(com-refresh)))))
 
 (defun update-mode-line-hanger (&rest ignore)
+  "responsible for updating the modeline after StumpWM commands."
   (declare (ignore ignore))
-  (update-mode-line))
+  (update-mode-line)
+  (sb-thread:with-mutex ((mode-line-mutex *stumpwm-modeline-frame*))
+    (schedule-refresh :redisplay *stumpwm-modeline-frame*)))
 
 (defun app-main (&optional (head (stumpwm:current-head)))
   (let* ((total-width (stumpwm::head-width head))
@@ -170,6 +180,8 @@ update itself."
      (lambda ()
        (loop
          (update-mode-line)
+         (sb-thread:with-mutex ((mode-line-mutex frame))
+           (schedule-refresh :timeout frame))
          (sleep 5)))
      :name "CLIM-MODE-LINE")))          ; keep names the same for easy clean up.
 

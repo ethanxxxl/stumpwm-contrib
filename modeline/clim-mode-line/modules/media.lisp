@@ -1,6 +1,6 @@
 (in-package :clim-mode-line)
 
-(define-formatting-item (media-item)
+(define-formatting-item (media-item :refresh '(:timeout))
   (with-default-style (pane :bg +green3+)
     (format pane " ~A " (track-artist)))
   (with-default-style (pane :bg +green2+)

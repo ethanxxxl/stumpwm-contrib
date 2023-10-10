@@ -38,4 +38,4 @@ yellow background colors."
                         (stumpwm::window-number win)))))))
 
 (define-presentation-command window-picker (win)
-  (stumpwm:raise-window win))
+  (stumpwm:focus-window win t))

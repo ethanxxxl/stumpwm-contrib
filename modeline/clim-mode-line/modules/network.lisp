@@ -1,6 +1,6 @@
 (in-package :clim-mode-line)
 
-(define-formatting-item (network-item)
+(define-formatting-item (network-item :refresh '(:timeout))
   (with-default-style (pane)
     (let ((type (network-type (network-iface)))
           (strength (wifi-strength)))   ; only valid if connected to wifi

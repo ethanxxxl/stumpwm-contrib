@@ -7,8 +7,8 @@
     (formatting-row (pane)
       (with-default-style (pane :bg +light-blue+)
         (local-time::format-timestring
-         t (local-time:now) :format '(" " (:hour 2) "" (:min 2) " ")))
+         pane (local-time:now) :format '(" " (:hour 2) "" (:min 2) " ")))
       (with-default-style (pane :bg +light-coral+)
         (local-time::format-timestring
-         t (local-time:now)
+         pane (local-time:now)
          :format '(" " :day " " :short-month ", " :year " "))))))

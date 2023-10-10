@@ -6,7 +6,7 @@
 ;;      scanning
 ;; TODO when you right click on the bluetooth symbol when scanning, it should
 ;;      pull up a list of devices
-(define-formatting-item (bluetooth-item :slots (show-name))
+(define-formatting-item (bluetooth-item :slots (show-name) :refresh '(:timeout))
   (with-default-style (pane :bg +white+)
     (format pane " ~A "
             (cond ((and (bluetooth-power) (bluetooth-scanning))
